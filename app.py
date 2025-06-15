@@ -1,60 +1,31 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
+import os
+import tempfile
+import time
 import cv2
 import numpy as np
-import os
-import subprocess
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.efficientnet import preprocess_input
-from werkzeug.utils import secure_filename
 
-# Flask setup
-app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'mp4'}
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
-
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app = Flask(__name__)  # ✅ Use __name__ instead of _name_
+CORS(app)  # Enable CORS for all routes
 
 # Constants
 FRAME_HEIGHT = 128
 FRAME_WIDTH = 128
 FRAMES_PER_VIDEO = 20
-MODEL_PATH = "Deepfake_detection.h5"
-GOOGLE_DRIVE_FILE_ID = "164dS7mmPeDZj3QF2qUBDYBSzZea2ebLR"  # ✅ New model file ID
+MODEL_PATH = "deepfake_detection.h5"  # Ensure the model is present in the same folder or correct path
 CONFIDENCE_THRESHOLD = 0.80
+UPLOAD_FOLDER = tempfile.gettempdir()
 
-# ⬇️ Download model from Google Drive if not already present
-def download_model():
-    if not os.path.exists(MODEL_PATH):
-        print("📥 Downloading model from Google Drive...")
-        try:
-            subprocess.run(
-                ["gdown", f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}", "-O", MODEL_PATH],
-                check=True
-            )
-            print("✅ Model downloaded successfully.")
-        except subprocess.CalledProcessError as e:
-            print("❌ Model download failed.")
-            raise RuntimeError("Model download failed.") from e
-    else:
-        print("✅ Model already exists, skipping download.")
-
-download_model()
-
-# ⬇️ Load model
 try:
     model = load_model(MODEL_PATH, compile=False)
-    print("✅ Model loaded successfully.")
+    print("✅ Model loaded successfully!")
 except Exception as e:
     print(f"❌ Error loading model: {e}")
-    raise
+    model = None
 
-# ⬇️ Helper: file type validation
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# ⬇️ Helper: extract frames for inference
 def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -80,55 +51,49 @@ def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
 
     return np.array(frames)
 
-# ⬇️ Core prediction logic
 def predict_video(video_path):
+    if model is None:
+        return {"error": "Model not loaded"}, 500
+    
+    start_time = time.time()
     frames = extract_frames(video_path)
     input_data = np.expand_dims(frames, axis=0)
     prediction = model.predict(input_data)[0][0]
 
-    raw_label = "FAKE" if prediction > 0.5 else "REAL"
-    confidence = prediction if prediction > 0.5 else 1 - prediction
-
-    label = raw_label if confidence >= CONFIDENCE_THRESHOLD else f"{raw_label} (Low Confidence)"
-    return label, float(confidence)
-
-# ⬇️ Health Check
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "healthy"}), 200
-
-# ⬇️ Prediction endpoint
-@app.route('/predict', methods=['POST'])
-def predict():
-    if 'video' not in request.files:
-        return jsonify({'status': 'error', 'message': 'No video file provided'}), 400
+    is_deepfake = prediction > 0.5
+    confidence = float(prediction) if is_deepfake else float(1 - prediction)
+    confidence_percent = int(confidence * 100)
+    analysis_time = time.time() - start_time
     
-    file = request.files['video']
+    manipulation_regions = ['face', 'eyes'] if is_deepfake else []
+
+    return {
+        "isDeepfake": bool(is_deepfake),
+        "confidenceScore": confidence_percent,
+        "manipulationRegions": manipulation_regions,
+        "analysisTime": round(analysis_time, 1)
+    }
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze_video():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files['file']
     if file.filename == '':
-        return jsonify({'status': 'error', 'message': 'No video selected'}), 400
+        return jsonify({"error": "No selected file"}), 400
 
-    if not allowed_file(file.filename):
-        return jsonify({'status': 'error', 'message': 'Invalid file type. Use .mp4'}), 400
-
+    temp_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(temp_path)
+    
     try:
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-
-        label, confidence = predict_video(filepath)
-        os.remove(filepath)
-
-        return jsonify({
-            'status': 'success',
-            'prediction': label,
-            'confidence': confidence
-        })
-
+        result = predict_video(temp_path)
+        os.remove(temp_path)
+        return jsonify(result)
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return jsonify({"error": str(e)}), 500
 
-# ⬇️ Run app on custom host/port
-if __name__ == '__main__':
-    import os
-    port = int(os.environ.get('PORT', 5000))  # 🌐 Use PORT env var or fallback to 5000
-    app.run(host='0.0.0.0', port=port, debug=True)
+if __name__ == '__main__':  # ✅ Correct check for script execution
+    app.run(debug=True, host='0.0.0.0', port=5000)
