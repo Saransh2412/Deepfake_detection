@@ -21,7 +21,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 FRAME_HEIGHT = 128
 FRAME_WIDTH = 128
 FRAMES_PER_VIDEO = 20
-MODEL_URL = "https://huggingface.co/Saransh24/Deepfake_detection/resolve/main/Deepfake_detection.h5?download=true"
+MODEL_URL = "https://huggingface.co/Saransh24/Deepfake_detection/blob/main/Deepfake_detection.h5"
 MODEL_PATH = "Deepfake_detection.h5"
 CONFIDENCE_THRESHOLD = 0.80
 
