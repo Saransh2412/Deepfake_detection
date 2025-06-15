@@ -23,24 +23,18 @@ FRAMES_PER_VIDEO = 20
 UPLOAD_FOLDER = tempfile.gettempdir()
 CONFIDENCE_THRESHOLD = 0.80
 ALLOWED_EXTENSIONS = {'mp4', 'mov', 'avi', 'mkv'}
-
-# Model download & loading
 MODEL_URL = "https://drive.google.com/uc?id=1pZiRmM-VXiSYc_SRI58zhGkCXkEnGB1K"
 MODEL_PATH = "deepfake_detection.h5"
+model = None  # Lazy load later
 
+# Utility to check file type
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-try:
-    if not os.path.exists(MODEL_PATH):
-        logging.info("📥 Downloading model from Google Drive...")
-        gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
-
-    model = load_model(MODEL_PATH, compile=False)
-    logging.info("✅ Model loaded successfully!")
-except Exception as e:
-    logging.error(f"❌ Error loading model: {e}")
-    model = None
+# Health check route
+@app.route('/')
+def home():
+    return '✅ Deepfake detection backend is running!'
 
 # Frame extraction logic
 def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
@@ -70,8 +64,17 @@ def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
 
 # Prediction logic
 def predict_video(video_path):
+    global model
     if model is None:
-        return {"error": "Model not loaded"}, 500
+        try:
+            if not os.path.exists(MODEL_PATH):
+                logging.info("📥 Downloading model from Google Drive...")
+                gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
+            model = load_model(MODEL_PATH, compile=False)
+            logging.info("✅ Model loaded successfully!")
+        except Exception as e:
+            logging.error(f"❌ Error loading model: {e}")
+            return {"error": "Model loading failed"}, 500
 
     start_time = time.time()
     frames = extract_frames(video_path)
@@ -91,7 +94,7 @@ def predict_video(video_path):
         "analysisTime": round(analysis_time, 1)
     }
 
-# API endpoint
+# Main analyze endpoint
 @app.route('/api/analyze', methods=['POST'])
 def analyze_video():
     if 'file' not in request.files:
@@ -117,6 +120,7 @@ def analyze_video():
         logging.error(f"❌ Error processing video: {e}")
         return jsonify({"error": str(e)}), 500
 
-# Local run fallback (not used on Railway)
+# Start server (use dynamic port for Railway)
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
