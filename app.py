@@ -3,11 +3,15 @@ from flask_cors import CORS
 import os
 import tempfile
 import time
+import logging
 import cv2
 import numpy as np
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.efficientnet import preprocess_input
-import gdown  # ✅ Added for downloading from Google Drive
+import gdown
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
 CORS(app)
@@ -18,20 +22,24 @@ FRAME_WIDTH = 128
 FRAMES_PER_VIDEO = 20
 UPLOAD_FOLDER = tempfile.gettempdir()
 CONFIDENCE_THRESHOLD = 0.80
+ALLOWED_EXTENSIONS = {'mp4', 'mov', 'avi', 'mkv'}
 
 # Model download & loading
-MODEL_URL = "https://drive.google.com/uc?id=1pZiRmM-VXiSYc_SRI58zhGkCXkEnGB1K"  # ✅ Converted direct download URL
+MODEL_URL = "https://drive.google.com/uc?id=1pZiRmM-VXiSYc_SRI58zhGkCXkEnGB1K"
 MODEL_PATH = "deepfake_detection.h5"
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 try:
     if not os.path.exists(MODEL_PATH):
-        print("📥 Downloading model from Google Drive...")
+        logging.info("📥 Downloading model from Google Drive...")
         gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
 
     model = load_model(MODEL_PATH, compile=False)
-    print("✅ Model loaded successfully!")
+    logging.info("✅ Model loaded successfully!")
 except Exception as e:
-    print(f"❌ Error loading model: {e}")
+    logging.error(f"❌ Error loading model: {e}")
     model = None
 
 # Frame extraction logic
@@ -93,6 +101,9 @@ def analyze_video():
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
 
+    if not allowed_file(file.filename):
+        return jsonify({"error": "Invalid file type"}), 400
+
     temp_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(temp_path)
 
@@ -103,8 +114,9 @@ def analyze_video():
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+        logging.error(f"❌ Error processing video: {e}")
         return jsonify({"error": str(e)}), 500
 
-# Server start
+# Local run fallback (not used on Railway)
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
