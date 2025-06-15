@@ -6,4 +6,3 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     autoDeploy: true
-    pythonVersion: 3.8.18

@@ -7,25 +7,34 @@ import cv2
 import numpy as np
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.efficientnet import preprocess_input
+import gdown  # ✅ Added for downloading from Google Drive
 
-app = Flask(__name__)  # ✅ Use __name__ instead of _name_
-CORS(app)  # Enable CORS for all routes
+app = Flask(__name__)
+CORS(app)
 
 # Constants
 FRAME_HEIGHT = 128
 FRAME_WIDTH = 128
 FRAMES_PER_VIDEO = 20
-MODEL_PATH = "deepfake_detection.h5"  # Ensure the model is present in the same folder or correct path
-CONFIDENCE_THRESHOLD = 0.80
 UPLOAD_FOLDER = tempfile.gettempdir()
+CONFIDENCE_THRESHOLD = 0.80
+
+# Model download & loading
+MODEL_URL = "https://drive.google.com/uc?id=1pZiRmM-VXiSYc_SRI58zhGkCXkEnGB1K"  # ✅ Converted direct download URL
+MODEL_PATH = "deepfake_detection.h5"
 
 try:
+    if not os.path.exists(MODEL_PATH):
+        print("📥 Downloading model from Google Drive...")
+        gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
+
     model = load_model(MODEL_PATH, compile=False)
     print("✅ Model loaded successfully!")
 except Exception as e:
     print(f"❌ Error loading model: {e}")
     model = None
 
+# Frame extraction logic
 def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -51,10 +60,11 @@ def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
 
     return np.array(frames)
 
+# Prediction logic
 def predict_video(video_path):
     if model is None:
         return {"error": "Model not loaded"}, 500
-    
+
     start_time = time.time()
     frames = extract_frames(video_path)
     input_data = np.expand_dims(frames, axis=0)
@@ -64,7 +74,6 @@ def predict_video(video_path):
     confidence = float(prediction) if is_deepfake else float(1 - prediction)
     confidence_percent = int(confidence * 100)
     analysis_time = time.time() - start_time
-    
     manipulation_regions = ['face', 'eyes'] if is_deepfake else []
 
     return {
@@ -74,6 +83,7 @@ def predict_video(video_path):
         "analysisTime": round(analysis_time, 1)
     }
 
+# API endpoint
 @app.route('/api/analyze', methods=['POST'])
 def analyze_video():
     if 'file' not in request.files:
@@ -85,7 +95,7 @@ def analyze_video():
 
     temp_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(temp_path)
-    
+
     try:
         result = predict_video(temp_path)
         os.remove(temp_path)
@@ -95,5 +105,6 @@ def analyze_video():
             os.remove(temp_path)
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':  # ✅ Correct check for script execution
+# Server start
+if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
