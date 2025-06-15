@@ -7,9 +7,8 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.efficientnet import preprocess_input
 from werkzeug.utils import secure_filename
 
+# Flask setup
 app = Flask(__name__)
-
-# Configuration
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'mp4'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -25,26 +24,37 @@ MODEL_PATH = "Deepfake_detection.h5"
 GOOGLE_DRIVE_FILE_ID = "1pZiRmM-VXiSYc_SRI58zhGkCXkEnGB1K"
 CONFIDENCE_THRESHOLD = 0.80
 
-# ⬇️ Download the model using gdown
+# ⬇️ Download model from Google Drive if not already present
 def download_model():
     if not os.path.exists(MODEL_PATH):
-        print("Downloading model from Google Drive...")
+        print("📥 Downloading model from Google Drive...")
         try:
             subprocess.run(
                 ["gdown", f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}", "-O", MODEL_PATH],
                 check=True
             )
-            print("Model downloaded.")
-        except subprocess.CalledProcessError:
-            print("❌ Failed to download model.")
-            raise RuntimeError("Failed to download model from Google Drive.")
+            print("✅ Model downloaded successfully.")
+        except subprocess.CalledProcessError as e:
+            print("❌ Model download failed.")
+            raise RuntimeError("Model download failed.") from e
+    else:
+        print("✅ Model already exists, skipping download.")
 
 download_model()
-model = load_model(MODEL_PATH, compile=False)
 
+# ⬇️ Load model
+try:
+    model = load_model(MODEL_PATH, compile=False)
+    print("✅ Model loaded successfully.")
+except Exception as e:
+    print(f"❌ Error loading model: {e}")
+    raise
+
+# ⬇️ Helper: file type validation
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# ⬇️ Helper: extract frames for inference
 def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -70,6 +80,7 @@ def extract_frames(video_path, num_frames=FRAMES_PER_VIDEO):
 
     return np.array(frames)
 
+# ⬇️ Core prediction logic
 def predict_video(video_path):
     frames = extract_frames(video_path)
     input_data = np.expand_dims(frames, axis=0)
@@ -78,17 +89,15 @@ def predict_video(video_path):
     raw_label = "FAKE" if prediction > 0.5 else "REAL"
     confidence = prediction if prediction > 0.5 else 1 - prediction
 
-    if confidence < CONFIDENCE_THRESHOLD:
-        label = "FAKE (Low Confidence)"
-    else:
-        label = raw_label
-
+    label = raw_label if confidence >= CONFIDENCE_THRESHOLD else f"{raw_label} (Low Confidence)"
     return label, float(confidence)
 
+# ⬇️ Health Check
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "healthy"}), 200
 
+# ⬇️ Prediction endpoint
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'video' not in request.files:
@@ -114,9 +123,12 @@ def predict():
             'prediction': label,
             'confidence': confidence
         })
-    
+
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# ⬇️ Run app on custom host/port
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    import os
+    port = int(os.environ.get('PORT', 5000))  # 🌐 Use PORT env var or fallback to 5000
+    app.run(host='0.0.0.0', port=port, debug=True)
