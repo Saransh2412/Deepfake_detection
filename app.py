@@ -21,7 +21,7 @@ FRAME_HEIGHT = 128
 FRAME_WIDTH = 128
 FRAMES_PER_VIDEO = 20
 MODEL_PATH = "Deepfake_detection.h5"
-GOOGLE_DRIVE_FILE_ID = "1pZiRmM-VXiSYc_SRI58zhGkCXkEnGB1K"
+GOOGLE_DRIVE_FILE_ID = "164dS7mmPeDZj3QF2qUBDYBSzZea2ebLR"  # ✅ New model file ID
 CONFIDENCE_THRESHOLD = 0.80
 
 # ⬇️ Download model from Google Drive if not already present
