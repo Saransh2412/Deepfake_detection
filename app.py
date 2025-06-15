@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import cv2
 import numpy as np
 import os
-import requests
+import subprocess
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.efficientnet import preprocess_input
 from werkzeug.utils import secure_filename
@@ -21,18 +21,23 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 FRAME_HEIGHT = 128
 FRAME_WIDTH = 128
 FRAMES_PER_VIDEO = 20
-MODEL_URL = "https://huggingface.co/Saransh24/Deepfake_detection/blob/main/Deepfake_detection.h5"
 MODEL_PATH = "Deepfake_detection.h5"
+GOOGLE_DRIVE_FILE_ID = "1pZiRmM-VXiSYc_SRI58zhGkCXkEnGB1K"
 CONFIDENCE_THRESHOLD = 0.80
 
-# ⬇️ Download the model if not present
+# ⬇️ Download the model using gdown
 def download_model():
     if not os.path.exists(MODEL_PATH):
-        print("Downloading model from Hugging Face...")
-        response = requests.get(MODEL_URL)
-        with open(MODEL_PATH, "wb") as f:
-            f.write(response.content)
-        print("Model downloaded.")
+        print("Downloading model from Google Drive...")
+        try:
+            subprocess.run(
+                ["gdown", f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}", "-O", MODEL_PATH],
+                check=True
+            )
+            print("Model downloaded.")
+        except subprocess.CalledProcessError:
+            print("❌ Failed to download model.")
+            raise RuntimeError("Failed to download model from Google Drive.")
 
 download_model()
 model = load_model(MODEL_PATH, compile=False)
